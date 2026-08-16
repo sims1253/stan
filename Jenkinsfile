@@ -28,6 +28,8 @@ def WINSETENV = '''
 def stanc3_bin_url = params.stanc3_bin_url != "nightly" ? "STANC3_TEST_BIN_URL=${params.stanc3_bin_url}\n" : ''
 
 catchError {
+  buildImage(context: 'ci')
+
   withEnv([
     'GCC=g++',
     'GIT_AUTHOR_NAME=Stan Jenkins',
@@ -35,7 +37,7 @@ catchError {
     'GIT_COMMITTER_NAME=Stan Jenkins',
     'GIT_COMMITTER_EMAIL=mc.stanislaw@gmail.com'
   ]) {
-    runPod(image: "stanorg/ci:gpu", cpus: 2) {
+    runPod(cpus: 2) {
       stage('Verify changes') {
         commit = sh(returnStdout: true, script: "git rev-parse HEAD").trim()
         runRemainingStages = params.downstream || params.run_all || filesChanged(
@@ -124,7 +126,7 @@ up the autoformatter locally.  (Check console output at ${env.BUILD_URL})
             }
           }
         }, linux: {
-          runPod(image: "stanorg/ci:gpu", gpus: 1) {
+          runPod(gpus: 1) {
             stage('Linux Unit') {
               runUnit(cxx: LINUX_CXX, local: """
 STAN_OPENCL=true
@@ -170,7 +172,7 @@ OPENCL_DEVICE_ID=0
         }
 
         parallel linux: {
-          runPod(image: 'stanorg/ci:gpu', checkout: false) {
+          runPod(checkout: false) {
             stage('Integration Linux') {
               checkout scmGit(userRemoteConfigs: [[url: 'https://github.com/stan-dev/performance-tests-cmdstan']],
                 extensions: [cloneOption(shallow: true, depth: 2), submodule(recursiveSubmodules: true, shallow: true, depth: 2)])
