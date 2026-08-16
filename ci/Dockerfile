@@ -5,7 +5,7 @@ FROM docker.io/nvidia/cuda:11.2.2-devel-ubuntu20.04
 # Clang version
 # OpenMPI
 ENV TZ="America/New_York" \
-    CLANG_VERSION="7" LLD_VERSION="7"
+    CLANG_VERSION="6.0" LLD_VERSION="6.0"
 
 # Install os dependencies and pip3
 RUN export DEBIAN_FRONTEND=noninteractive && \
