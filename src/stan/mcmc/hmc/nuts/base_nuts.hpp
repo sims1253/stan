@@ -84,6 +84,20 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     this->hamiltonian_.sample_p(this->z_, this->rand_int_);
     this->hamiltonian_.init(this->z_, logger);
 
+    // Size the depth-indexed scratch stacks once (or if depth/params changed)
+    if (static_cast<int>(scratch_p_init_end_.size()) != this->max_depth_
+        || scratch_p_init_end_[0].size() != this->z_.p.size()) {
+      const int n = this->z_.p.size();
+      scratch_p_init_end_.assign(this->max_depth_, Eigen::VectorXd(n));
+      scratch_p_sharp_init_end_.assign(this->max_depth_, Eigen::VectorXd(n));
+      scratch_rho_init_.assign(this->max_depth_, Eigen::VectorXd(n));
+      scratch_p_final_beg_.assign(this->max_depth_, Eigen::VectorXd(n));
+      scratch_p_sharp_final_beg_.assign(this->max_depth_, Eigen::VectorXd(n));
+      scratch_rho_final_.assign(this->max_depth_, Eigen::VectorXd(n));
+      scratch_rho_subtree_.assign(this->max_depth_, Eigen::VectorXd(n));
+      scratch_z_propose_final_.assign(this->max_depth_, ps_point(n));
+    }
+
     ps_point z_fwd(this->z_);  // State at forward end of trajectory
     ps_point z_bck(z_fwd);     // State at backward end of trajectory
 
@@ -179,7 +193,8 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
           = compute_criterion(p_sharp_bck_bck, p_sharp_fwd_fwd, rho);
 
       // Demand satisfaction between subtrees
-      Eigen::VectorXd rho_extended = rho_bck + p_fwd_bck;
+      Eigen::VectorXd& rho_extended = rho_extended_;
+      rho_extended = rho_bck + p_fwd_bck;
 
       persist_criterion
           &= compute_criterion(p_sharp_bck_bck, p_sharp_fwd_bck, rho_extended);
@@ -286,10 +301,11 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     double log_sum_weight_init = -std::numeric_limits<double>::infinity();
 
     // Momentum and sharp momentum at end of the initial subtree
-    Eigen::VectorXd p_init_end(this->z_.p.size());
-    Eigen::VectorXd p_sharp_init_end(this->z_.p.size());
+    Eigen::VectorXd& p_init_end = scratch_p_init_end_[depth];
+    Eigen::VectorXd& p_sharp_init_end = scratch_p_sharp_init_end_[depth];
 
-    Eigen::VectorXd rho_init = Eigen::VectorXd::Zero(rho.size());
+    Eigen::VectorXd& rho_init = scratch_rho_init_[depth];
+    rho_init.setZero();
 
     bool valid_init
         = build_tree(depth - 1, z_propose, p_sharp_beg, p_sharp_init_end,
@@ -300,15 +316,17 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
       return false;
 
     // Build the final subtree
-    ps_point z_propose_final(this->z_);
+    ps_point& z_propose_final = scratch_z_propose_final_[depth];
+    z_propose_final.ps_point::operator=(this->z_);
 
     double log_sum_weight_final = -std::numeric_limits<double>::infinity();
 
     // Momentum and sharp momentum at beginning of the final subtree
-    Eigen::VectorXd p_final_beg(this->z_.p.size());
-    Eigen::VectorXd p_sharp_final_beg(this->z_.p.size());
+    Eigen::VectorXd& p_final_beg = scratch_p_final_beg_[depth];
+    Eigen::VectorXd& p_sharp_final_beg = scratch_p_sharp_final_beg_[depth];
 
-    Eigen::VectorXd rho_final = Eigen::VectorXd::Zero(rho.size());
+    Eigen::VectorXd& rho_final = scratch_rho_final_[depth];
+    rho_final.setZero();
 
     bool valid_final
         = build_tree(depth - 1, z_propose_final, p_sharp_final_beg, p_sharp_end,
@@ -332,7 +350,8 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
         z_propose = z_propose_final;
     }
 
-    Eigen::VectorXd rho_subtree = rho_init + rho_final;
+    Eigen::VectorXd& rho_subtree = scratch_rho_subtree_[depth];
+    rho_subtree = rho_init + rho_final;
     rho += rho_subtree;
 
     // Demand satisfaction around merged subtrees
@@ -357,6 +376,24 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
 
   int n_leapfrog_;
   bool divergent_;
+
+  // build_tree scratch vectors, hoisted out of the recursion to avoid
+  // per-call allocation. Indexed by depth; sized lazily in transition().
+  // A parent at depth d only touches slot d (children use d-1) and reads
+  // its slot only after its children return, so the shared buffers are
+  // recursion-safe.
+  std::vector<Eigen::VectorXd> scratch_p_init_end_;
+  std::vector<Eigen::VectorXd> scratch_p_sharp_init_end_;
+  std::vector<Eigen::VectorXd> scratch_rho_init_;
+  std::vector<Eigen::VectorXd> scratch_p_final_beg_;
+  std::vector<Eigen::VectorXd> scratch_p_sharp_final_beg_;
+  std::vector<Eigen::VectorXd> scratch_rho_final_;
+  std::vector<Eigen::VectorXd> scratch_rho_subtree_;
+  // Per-depth stack: a single shared ps_point would be overwritten by the
+  // recursive call that receives it as z_propose.
+  std::vector<ps_point> scratch_z_propose_final_;
+  Eigen::VectorXd rho_extended_;
+
   double energy_;
 };
 
