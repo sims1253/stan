@@ -3,6 +3,7 @@
 
 #include <stan/math/prim/meta.hpp>
 #include <gtest/gtest.h>
+#include <utility>
 
 namespace stan {
 namespace model {
@@ -219,7 +220,7 @@ inline auto convert_to_multi(const index_omni& idx, const T& x,
       v.push_back(i);
     }
   }
-  return index_multi(v);
+  return index_multi(std::move(v));
 }
 
 template <typename T>
@@ -235,7 +236,7 @@ inline auto convert_to_multi(const index_min& idx, const T& x,
       v.push_back(i);
     }
   }
-  return index_multi(v);
+  return index_multi(std::move(v));
 }
 
 template <typename T>
@@ -245,7 +246,7 @@ inline auto convert_to_multi(const index_max& idx, const T& x,
   for (int i = 1; i <= idx.max_; ++i) {
     v.push_back(i);
   }
-  return index_multi(v);
+  return index_multi(std::move(v));
 }
 
 template <typename T>
@@ -255,7 +256,7 @@ inline auto convert_to_multi(const index_min_max& idx, const T& x,
   for (int i = idx.min_; i <= idx.max_; ++i) {
     v.push_back(i);
   }
-  return index_multi(v);
+  return index_multi(std::move(v));
 }
 
 template <typename T>
@@ -263,7 +264,7 @@ inline auto convert_to_multi(const index_uni& idx, const T& x,
                              bool row_or_col) {
   std::vector<int> v;
   v.push_back(idx.n_);
-  return index_multi(v);
+  return index_multi(std::move(v));
 }
 
 }  // namespace test
