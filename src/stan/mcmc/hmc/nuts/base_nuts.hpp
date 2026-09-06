@@ -84,19 +84,7 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     this->hamiltonian_.sample_p(this->z_, this->rand_int_);
     this->hamiltonian_.init(this->z_, logger);
 
-    // Size the depth-indexed scratch stacks once (or if depth/params changed)
-    if (static_cast<int>(scratch_p_init_end_.size()) != this->max_depth_
-        || scratch_p_init_end_[0].size() != this->z_.p.size()) {
-      const int n = this->z_.p.size();
-      scratch_p_init_end_.assign(this->max_depth_, Eigen::VectorXd(n));
-      scratch_p_sharp_init_end_.assign(this->max_depth_, Eigen::VectorXd(n));
-      scratch_rho_init_.assign(this->max_depth_, Eigen::VectorXd(n));
-      scratch_p_final_beg_.assign(this->max_depth_, Eigen::VectorXd(n));
-      scratch_p_sharp_final_beg_.assign(this->max_depth_, Eigen::VectorXd(n));
-      scratch_rho_final_.assign(this->max_depth_, Eigen::VectorXd(n));
-      scratch_rho_subtree_.assign(this->max_depth_, Eigen::VectorXd(n));
-      scratch_z_propose_final_.assign(this->max_depth_, ps_point(n));
-    }
+    initialize_scratch(this->max_depth_);
 
     ps_point z_fwd(this->z_);  // State at forward end of trajectory
     ps_point z_bck(z_fwd);     // State at backward end of trajectory
@@ -295,6 +283,10 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
 
       return !this->divergent_;
     }
+    // Public callers can build trees before transition(), and can request a
+    // depth greater than max_depth_. Reserve the entire recursion first.
+    initialize_scratch(depth + 1);
+
     // General recursion
 
     // Build the initial subtree
@@ -370,15 +362,39 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
     return persist_criterion;
   }
 
+ private:
+  // Allocate before taking references into the stacks. Recursive children have
+  // smaller depths, so they cannot resize the stacks and invalidate a parent's
+  // references. Keep existing capacity when the configured depth decreases.
+  void initialize_scratch(int required_depth) {
+    if (scratch_p_init_end_.empty()
+        || static_cast<int>(scratch_p_init_end_.size()) < required_depth
+        || scratch_p_init_end_[0].size() != this->z_.p.size()) {
+      const int n = this->z_.p.size();
+      scratch_p_init_end_.assign(required_depth, Eigen::VectorXd(n));
+      scratch_p_sharp_init_end_.assign(required_depth, Eigen::VectorXd(n));
+      scratch_rho_init_.assign(required_depth, Eigen::VectorXd(n));
+      scratch_p_final_beg_.assign(required_depth, Eigen::VectorXd(n));
+      scratch_p_sharp_final_beg_.assign(required_depth, Eigen::VectorXd(n));
+      scratch_rho_final_.assign(required_depth, Eigen::VectorXd(n));
+      scratch_rho_subtree_.assign(required_depth, Eigen::VectorXd(n));
+      scratch_z_propose_final_.assign(required_depth, ps_point(n));
+    }
+  }
+
+ public:
   int depth_;
   int max_depth_;
   double max_deltaH_;
 
   int n_leapfrog_;
   bool divergent_;
+  double energy_;
 
+ private:
   // build_tree scratch vectors, hoisted out of the recursion to avoid
-  // per-call allocation. Indexed by depth; sized lazily in transition().
+  // per-call allocation. Indexed by depth; sized before either entry point
+  // recurses.
   // A parent at depth d only touches slot d (children use d-1) and reads
   // its slot only after its children return, so the shared buffers are
   // recursion-safe.
@@ -393,8 +409,6 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   // recursive call that receives it as z_propose.
   std::vector<ps_point> scratch_z_propose_final_;
   Eigen::VectorXd rho_extended_;
-
-  double energy_;
 };
 
 }  // namespace mcmc
