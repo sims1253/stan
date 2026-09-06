@@ -283,8 +283,8 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
 
       return !this->divergent_;
     }
-    // Public callers can build trees before transition(), and can request a
-    // depth greater than max_depth_. Reserve the entire recursion first.
+    // Direct calls can precede transition() or exceed max_depth_. Allocate
+    // all depth slots before taking references.
     initialize_scratch(depth + 1);
 
     // General recursion
@@ -363,9 +363,9 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   }
 
  private:
-  // Allocate before taking references into the stacks. Recursive children have
-  // smaller depths, so they cannot resize the stacks and invalidate a parent's
-  // references. Keep existing capacity when the configured depth decreases.
+  // Allocate before taking references. Children request fewer slots, so they
+  // cannot reallocate storage while a parent holds references. Retain storage
+  // when the configured depth decreases.
   void initialize_scratch(int required_depth) {
     if (scratch_p_init_end_.empty()
         || static_cast<int>(scratch_p_init_end_.size()) < required_depth
@@ -392,12 +392,8 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   double energy_;
 
  private:
-  // build_tree scratch vectors, hoisted out of the recursion to avoid
-  // per-call allocation. Indexed by depth; sized before either entry point
-  // recurses.
-  // A parent at depth d only touches slot d (children use d-1) and reads
-  // its slot only after its children return, so the shared buffers are
-  // recursion-safe.
+  // Reuse scratch storage across build_tree calls. Each depth has its own
+  // slot, so children do not overwrite the parent's intermediate results.
   std::vector<Eigen::VectorXd> scratch_p_init_end_;
   std::vector<Eigen::VectorXd> scratch_p_sharp_init_end_;
   std::vector<Eigen::VectorXd> scratch_rho_init_;
@@ -405,8 +401,8 @@ class base_nuts : public base_hmc<Model, Hamiltonian, Integrator, BaseRNG> {
   std::vector<Eigen::VectorXd> scratch_p_sharp_final_beg_;
   std::vector<Eigen::VectorXd> scratch_rho_final_;
   std::vector<Eigen::VectorXd> scratch_rho_subtree_;
-  // Per-depth stack: a single shared ps_point would be overwritten by the
-  // recursive call that receives it as z_propose.
+  // Each depth also needs a separate proposal: a child receives the parent's
+  // proposal as z_propose and must not overwrite it with its own scratch state.
   std::vector<ps_point> scratch_z_propose_final_;
   Eigen::VectorXd rho_extended_;
 };

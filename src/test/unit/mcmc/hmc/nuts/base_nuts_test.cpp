@@ -437,9 +437,8 @@ TEST(McmcNutsBaseNuts, transition_egde_momenta) {
   EXPECT_EQ(3 * init_momentum, sampler.p_sharp_plus_values[8]);
 }
 
-// Public build_tree calls do not require a prior transition and need not be
-// bounded by max_depth_. Repeated calls also exercise retained parent scratch
-// across both recursive children after the storage grows or depth decreases.
+// Direct calls can precede transition() and exceed max_depth_. Check both
+// recursive children after scratch storage grows or the requested depth falls.
 TEST(McmcNutsBaseNuts, direct_build_tree_changing_depth) {
   stan::rng_t rng = stan::services::util::create_rng(1234, 0);
   stan::mcmc::mock_model model(1);
