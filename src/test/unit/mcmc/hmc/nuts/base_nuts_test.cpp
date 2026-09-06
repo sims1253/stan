@@ -436,3 +436,57 @@ TEST(McmcNutsBaseNuts, transition_egde_momenta) {
   EXPECT_EQ(init_momentum, sampler.p_sharp_minus_values[8]);
   EXPECT_EQ(3 * init_momentum, sampler.p_sharp_plus_values[8]);
 }
+
+// Direct calls can precede transition() and exceed max_depth_. Check both
+// recursive children after scratch storage grows or the requested depth falls.
+TEST(McmcNutsBaseNuts, direct_build_tree_changing_depth) {
+  stan::rng_t rng = stan::services::util::create_rng(1234, 0);
+  stan::mcmc::mock_model model(1);
+  stan::mcmc::mock_nuts sampler(model, rng);
+  stan::callbacks::logger logger;
+  sampler.set_nominal_stepsize(1);
+  sampler.sample_stepsize();
+  for (int depth : {3, 1, 6, 2, 6}) {
+    sampler.set_max_depth(depth == 6 ? 2 : 4);
+    sampler.z().q.setZero();
+    sampler.z().p.setConstant(1.5);
+    sampler.z().V = 0;
+    stan::mcmc::ps_point proposal(1);
+    Eigen::VectorXd p_begin(1), p_end(1), sharp_begin(1), sharp_end(1);
+    Eigen::VectorXd rho = Eigen::VectorXd::Zero(1);
+    int leapfrogs = 0;
+    double weight = -std::numeric_limits<double>::infinity();
+    double acceptance = 0;
+    ASSERT_TRUE(sampler.build_tree(depth, proposal, sharp_begin, sharp_end, rho,
+                                   p_begin, p_end, 0, 1, leapfrogs, weight,
+                                   acceptance, logger));
+    EXPECT_EQ(1 << depth, leapfrogs);
+    EXPECT_DOUBLE_EQ(1.5 * leapfrogs, sampler.z().q(0));
+    EXPECT_DOUBLE_EQ(1.5 * leapfrogs, rho(0));
+    EXPECT_DOUBLE_EQ(1.5, sharp_begin(0));
+    EXPECT_DOUBLE_EQ(1.5 * leapfrogs, sharp_end(0));
+    EXPECT_DOUBLE_EQ(1.5, p_begin(0));
+    EXPECT_DOUBLE_EQ(1.5, p_end(0));
+    EXPECT_NEAR(std::log(leapfrogs), weight, 1e-14);
+    EXPECT_DOUBLE_EQ(leapfrogs, acceptance);
+    EXPECT_GE(proposal.q(0), 1.5);
+    EXPECT_LE(proposal.q(0), 1.5 * leapfrogs);
+  }
+}
+
+TEST(McmcNutsBaseNuts, transitions_changing_max_depth) {
+  stan::rng_t rng = stan::services::util::create_rng(1234, 0);
+  stan::mcmc::mock_model model(1);
+  stan::mcmc::mock_nuts sampler(model, rng);
+  stan::callbacks::logger logger;
+  sampler.set_nominal_stepsize(1);
+  sampler.z().p.setConstant(1.5);
+  stan::mcmc::sample initial(Eigen::VectorXd::Zero(1), 0, 0);
+  for (int depth : {2, 6, 1, 4, 6}) {
+    sampler.set_max_depth(depth);
+    sampler.transition(initial, logger);
+    EXPECT_EQ(depth, sampler.depth_);
+    EXPECT_EQ((1 << depth) - 1, sampler.n_leapfrog_);
+    EXPECT_FALSE(sampler.divergent_);
+  }
+}
